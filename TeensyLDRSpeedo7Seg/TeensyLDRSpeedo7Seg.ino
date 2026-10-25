@@ -1,27 +1,37 @@
 /*
 TEENSY 2.0
 
-The point of this project is to display scale speed from a vehicle passing through a light gate comprised of two LDR sensors, and display the speed on the 7-segment display. 
+You will need:
+Teensy 2.0 board
+External light source (or 2x bright LEDs via resistors from Vcc aimed at the LDRs)
+2x light-dependent resistors
+4-bit 7-segment LED display with decimal points
+2x resistors for LDR voltage dividers (e.g., 10k ohm)
+4x current-limiting resistors for 4-digit 7-segment display
+3x pull-up resistors for the pushbuttons
+3x Pushbuttons for setup and value adjustment
+
+The purpose of this project is to display scale speed from a vehicle passing through a light gate comprised of two LDR sensors, and display the speed on the 7-segment display. 
 The user will be able to configure the scale speed using the pushbuttons in setup mode.
 
 4-bit 7-segment LED display with decimal points
 https://www.instructables.com/12-Pin-7-Segment-Display-Wiring-Tutorial/
 
-Looking down on chip, Pin 1 is bottom left.  
-Anodes = Pins 12, 9, 8, 6
+Looking down on the 4-segment display with decimal points to the left, Pin 1 is top left.  
+Anodes for digit 1, 2, 3, 4 = Pins 12, 9, 8, 6
 Segments = A 11, B 7, C 4, D 2, E 1, F 10, G 5
 Decimal point = Pin 19
 
-Connect bit CATHODES via resistors to pins 1, 2, 3, 4, respectively.
-Connect segment ANODES to pins 12 to 18 respectively
-Connect decimal point cathode to pin 19.
+Connect digit CATHODES (negative terminals) to the Teensy via 300-600k ohm resistors.
+Connect segment ANODES (positive terminals) and decimal point directly to the Teensy pins.
+Selecting segment anode HIGH and digit cathode LOW will light a segment within that digit.
 
 Switches-
-Pin 7: On/Off switch for setup mode vs. run mode
-Pin 8: PTM switch DOWN
-Pin 9: PTM switch UP
-
-Selecting segment anode HIGH and bit cathode LOW will light a segment within that bit.
+Connect as pull-down inputs with a resistor to GND 
+(Closing the switch will connect the pin to 3.3V; open will leave it at GND)
+Pin 7: PTM or SPST switch for setup mode vs. run mode
+Pin 8: PTM switch to adjust value DOWN
+Pin 9: PTM switch to adjust value UP
 
 Number Display logic table:
 
@@ -38,8 +48,12 @@ Number | A | B | C | D | E | F | G |
     8  | x | x | x | x | x | x | x |
     9  | x | x | x | x |   | x | x |
 
-*/
 
+ Pin numbers within this section do NOT correlate to the physical pin numbers on the Teensy board, they are offset:
+ pin numbers start with (P)B0 on the board being pin 1, and continue sequentially for the other pins to PC7being pin 10, 
+ then restart at (P)D6 being pin 11, and continue sequentially for the other pins up to (P)F0 being pin 21.
+
+*/
 
 int digitPins[] = { 1, 2, 3, 4 };
 int segmentPins[] = { 12, 13, 14, 15, 16, 17, 18, 19 };
