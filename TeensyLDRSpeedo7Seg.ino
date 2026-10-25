@@ -1,6 +1,9 @@
 /*
 TEENSY 2.0
 
+The point of this project is to display scale speed from a vehicle passing through a light gate comprised of two LDR sensors, and display the speed on the 7-segment display. 
+The user will be able to configure the scale speed using the pushbuttons in setup mode.
+
 4-bit 7-segment LED display with decimal points
 https://www.instructables.com/12-Pin-7-Segment-Display-Wiring-Tutorial/
 
