@@ -30,8 +30,8 @@ Switches-
 Connect as pull-down inputs with a resistor to GND 
 (Closing the switch will connect the pin to 3.3V; open will leave it at GND)
 Pin 7: PTM or SPST switch for setup mode vs. run mode
-Pin 8: PTM switch to adjust value DOWN
-Pin 9: PTM switch to adjust value UP
+Pin 8: PTM switch to adjust scale factor value DOWN
+Pin 9: PTM switch to adjust scale factor value UP
 
 Number Display logic table:
 
@@ -103,6 +103,7 @@ int number[10][7] = {
 float timeValue = 0.000;
 
 void setup() {
+  Serial.begin(9600);
 
   pinMode(startLDRpin, INPUT);     //topLDR - start
   pinMode(stopLDRpin, INPUT);      //bottomLDR - stop
