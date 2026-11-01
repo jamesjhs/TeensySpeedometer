@@ -72,15 +72,20 @@ float valStartLDR;
 float valStopLDR;
 int triggerVal = 500;
 int timerRun = 0;  // 0 = idle, 1 = running start->stop, 2 = running stop->start
-const unsigned long cooldown = 2000;  // ms between runs
-unsigned long timeEnd = -cooldown;    // allows first trigger immediately
+int cooldownTenths = 20;  // cooldown in 0.1 s units
+unsigned long timeEnd = -2000UL;  // allows first trigger immediately
+
+int mode = 0;  // 0 = running, 1 = LDR distance (mm), 2 = threshold, 3 = scale, 4 = cooldown
+unsigned long modeTime = 0;   // when the mode last changed / was last adjusted
+unsigned long pressTime = 0;  // settings button debounce
+bool lastPress = false;
 
 unsigned long timeStart;
 unsigned long timeNow;
 unsigned long timeStop = 0.000;
 
 float speed;
-float LDRdistance = 10;     // cm
+int LDRdistance = 100;      // mm
 float cms2mph = 0.0223694;  // cm per sec in mph
 float scale = 76.0;
 float speedcmsec;
@@ -160,7 +165,7 @@ void displayChar(int input, int position, int totalLength, int dotPosition) {
   Finally the function resets the cathodes and anodes to their default state ready to be called again.
   */
 
-  if (position > dotPosition) {
+  if (dotPosition >= 0 && position > dotPosition) {
     position = position - 1;
   }
 
@@ -187,16 +192,16 @@ void displayChar(int input, int position, int totalLength, int dotPosition) {
 
 }  //end displayChar function
 
-void sendToDisplay(float input) {
+void sendToDisplay(float input, int decimals) {
   /* 
 Takes the raw value as a float, and converts it to a string 
 so that each character can be sent across to the displayChar function.
 The decimal point position is noted and sent separately. 
 
 */
-  String strFromInput = String(input);
+  String strFromInput = String(input, decimals);
   int lenInputString = strFromInput.length();
-  int dotPosition = String(input).indexOf(".");
+  int dotPosition = strFromInput.indexOf(".");
 
   for (int i = 0; i < lenInputString; i++) {
     String stringDigit = strFromInput[i];
@@ -238,9 +243,10 @@ void loop() {
 
   if (timerRun == 0) {
     // trigger from either LDR, once the cooldown has elapsed
-    if ((startDark != stopDark) && (now - timeEnd >= cooldown)) {
+    if ((startDark != stopDark) && (now - timeEnd >= cooldownTenths * 100UL)) {
       timerRun = startDark ? 1 : 2;  // 1 = start LDR first, 2 = stop LDR first
       timeStart = now;
+      mode = 0;  // a trigger event leaves settings
       Serial.println("Timer triggered");
     }
   } else if (timerRun == 1 ? stopDark : startDark) {
@@ -248,7 +254,7 @@ void loop() {
     timeEnd = now;
     timerRun = 0;
     Serial.println("Timer stopped");
-    speedcmsec = (LDRdistance * scale) / (timeStop / 1000.000);
+    speedcmsec = (LDRdistance * 0.1 * scale) / (timeStop / 1000.000);
     Serial.print("Time taken (sec): ");
     Serial.println(timeStop / 1000.000);
     Serial.print("Speed in cm/sec: ");
@@ -259,24 +265,38 @@ void loop() {
   }
 
 
-  if (digitalRead(setupSwitchPin)) {
-    if (digitalRead(buttonDownPin)) {
-      buttonTime = millis();
+  bool press = digitalRead(setupSwitchPin);
+  if (press && !lastPress && now - pressTime > 200) {
+    pressTime = now;
+    modeTime = now;
+    mode = (mode + 1) % 5;  // 1..4 then back to 0 (running)
+  }
+  lastPress = press;
 
-      scale = scale - 0.5;
-      delay(50);
-    }
-    if (digitalRead(buttonUpPin)) {
-      scale = scale + 0.5;
-      delay(50);
-    }
-    sendToDisplay(scale);
-  } else {
-    if (timerRun != 0) {
-      sendToDisplay((millis() - timeStart) / 1000.000);
+  if (mode != 0) {
+    if (now - modeTime >= 10000) {
+      mode = 0;  // timeout
+    } else if (now - pressTime < 500) {
+      sendToDisplay(mode, 0);  // show mode number before the setting
     } else {
-      sendToDisplay(speed);
-    }  //sends the value as a raw number to sendToDisplay function
+      int d = digitalRead(buttonUpPin) - digitalRead(buttonDownPin);
+      if (d) {
+        modeTime = now;
+        if (mode == 1) LDRdistance = max(1, LDRdistance + d);
+        else if (mode == 2) triggerVal = constrain(triggerVal + d * 5, 0, 1023);
+        else if (mode == 3) scale = max(0.01, scale + d * 0.05);
+        else cooldownTenths = max(0, cooldownTenths + d);
+        delay(50);
+      }
+      if (mode == 1) sendToDisplay(LDRdistance, 0);
+      else if (mode == 2) sendToDisplay(triggerVal, 0);
+      else if (mode == 3) sendToDisplay(scale, 2);
+      else sendToDisplay(cooldownTenths / 10.0, 1);
+    }
+  } else if (timerRun != 0) {
+    sendToDisplay((now - timeStart) / 1000.000, 2);
+  } else {
+    sendToDisplay(speed, 2);
   }
 
 }  // end main loop
