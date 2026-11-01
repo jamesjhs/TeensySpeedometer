@@ -71,7 +71,9 @@ unsigned long buttonTime = 0;
 float valStartLDR;
 float valStopLDR;
 int triggerVal = 500;
-int timerRun = 0;
+int timerRun = 0;  // 0 = idle, 1 = running start->stop, 2 = running stop->start
+const unsigned long cooldown = 2000;  // ms between runs
+unsigned long timeEnd = -cooldown;    // allows first trigger immediately
 
 unsigned long timeStart;
 unsigned long timeNow;
@@ -230,30 +232,30 @@ void loop() {
   valStopLDR = analogRead(stopLDRpin);
 
 
-  if (valStartLDR < 500) {
-    if (valStopLDR < 500) {
-    } else if (timerRun == 0) {
+  bool startDark = valStartLDR < triggerVal;
+  bool stopDark = valStopLDR < triggerVal;
+  unsigned long now = millis();
 
-      timerRun = 1;
-      timeStart = millis();
-      Serial.println("Timer triggered");  // only change if not that value
+  if (timerRun == 0) {
+    // trigger from either LDR, once the cooldown has elapsed
+    if ((startDark != stopDark) && (now - timeEnd >= cooldown)) {
+      timerRun = startDark ? 1 : 2;  // 1 = start LDR first, 2 = stop LDR first
+      timeStart = now;
+      Serial.println("Timer triggered");
     }
-  }
-
-  if (valStopLDR < 500) {
-    if (timerRun == 1) {
-      timeStop = millis() - timeStart;
-      timerRun = 0;
-      Serial.println("Timer stopped");
-      speedcmsec = (LDRdistance * scale) / (timeStop / 1000.000);
-      Serial.print("Time taken (sec): ");
-      Serial.println(timeStop / 1000.000);
-      Serial.print("Speed in cm/sec: ");
-      Serial.println(speedcmsec);
-      speed = speedcmsec * cms2mph;
-      Serial.print("Speed in mph: ");
-      Serial.println(speed);
-    }
+  } else if (timerRun == 1 ? stopDark : startDark) {
+    timeStop = now - timeStart;
+    timeEnd = now;
+    timerRun = 0;
+    Serial.println("Timer stopped");
+    speedcmsec = (LDRdistance * scale) / (timeStop / 1000.000);
+    Serial.print("Time taken (sec): ");
+    Serial.println(timeStop / 1000.000);
+    Serial.print("Speed in cm/sec: ");
+    Serial.println(speedcmsec);
+    speed = speedcmsec * cms2mph;
+    Serial.print("Speed in mph: ");
+    Serial.println(speed);
   }
 
 
@@ -270,7 +272,7 @@ void loop() {
     }
     sendToDisplay(scale);
   } else {
-    if (timerRun == 1) {
+    if (timerRun != 0) {
       sendToDisplay((millis() - timeStart) / 1000.000);
     } else {
       sendToDisplay(speed);
