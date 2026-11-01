@@ -1,58 +1,85 @@
 /*
-TEENSY 2.0
+TEENSY 2.0 - LDR SCALE SPEEDOMETER
 
-You will need:
-Teensy 2.0 board
-External light source (or 2x bright LEDs via resistors from Vcc aimed at the LDRs)
-2x light-dependent resistors
-4-bit 7-segment LED display with decimal points
-2x resistors for LDR voltage dividers (e.g., 10k ohm)
-4x current-limiting resistors for 4-digit 7-segment display
-3x pull-up resistors for the pushbuttons
-3x Pushbuttons for setup and value adjustment
+Times an object passing two light gates in either direction and displays scale
+speed in mph. Either LDR can start the timer; the other stops it. An LDR is
+blocked when its analog reading is below triggerVal. Both sensors must not be
+blocked together to start a measurement. After a measurement, the configured
+cooldown must elapse before another can start.
 
-The purpose of this project is to display scale speed from a vehicle passing through a light gate comprised of two LDR sensors, and display the speed on the 7-segment display. 
-The user will be able to configure the scale speed using the pushbuttons in setup mode.
+Parts:
+- Teensy 2.0, USB cable, and a stable light source aimed at each LDR
+- 2 LDRs and 2 voltage-divider resistors (10 kOhm starting value)
+- 4-digit common-cathode seven-segment display with decimal points
+- 8 current-limiting resistors, one per segment line including decimal point;
+  choose values for the display current and Teensy I/O limits
+- 3 normally-open momentary buttons: settings, down, up
+- 3 external 10 kOhm pull-down resistors
+- For button filtering: 3 non-polarised 1 uF capacitors (rated >= Vcc)
+  and 3 series 1 kOhm resistors
 
-4-bit 7-segment LED display with decimal points
-https://www.instructables.com/12-Pin-7-Segment-Display-Wiring-Tutorial/
+Connections (Teensy/Arduino pin numbers, NOT display package-pin numbers):
+  Digit common cathodes, left to right: 1, 2, 3, 4
+  Segment anodes A, B, C, D, E, F, G, DP: 12, 13, 14, 15, 16, 17, 18, 19
+  Put a separate current-limiting resistor in EACH segment line. Check the
+  display datasheet for its package pinout; use drivers if required by current.
+  A segment lights when its anode is HIGH and its selected digit cathode is LOW.
 
-Looking down on the 4-segment display with decimal points to the left, Pin 1 is top left.  
-Anodes for digit 1, 2, 3, 4 = Pins 12, 9, 8, 6
-Segments = A 11, B 7, C 4, D 2, E 1, F 10, G 5
-Decimal point = Pin 19
+  Start LDR signal: 21; stop LDR signal: 20
+  For each sensor: Vcc -> LDR -> signal node -> 10 kOhm -> GND.
+  This makes the analog reading fall when light is blocked.
 
-Connect digit CATHODES (negative terminals) to the Teensy via 300-600k ohm resistors.
-Connect segment ANODES (positive terminals) and decimal point directly to the Teensy pins.
-Selecting segment anode HIGH and digit cathode LOW will light a segment within that digit.
+  Settings button: 6; down button: 7; up button: 8
+  All three inputs are active HIGH and use INPUT, with external pull-downs.
+  Use the board's logic supply Vcc (normally 5 V on an unmodified Teensy 2.0).
+  Connect all grounds together.
 
-Switches-
-Connect as pull-down inputs with a resistor to GND 
-(Closing the switch will connect the pin to 3.3V; open will leave it at GND)
-Pin 7: PTM or SPST switch for setup mode vs. run mode
-Pin 8: PTM switch to adjust scale factor value DOWN
-Pin 9: PTM switch to adjust scale factor value UP
+Button debounce capacitor wiring (repeat separately for pins 6, 7, and 8):
 
-Number Display logic table:
+  Vcc --- normally-open button --- 1 kOhm ---+--- Teensy input
+                                           |
+                                           +--- 10 kOhm --- GND
+                                           |
+                                           +--- 1 uF ------ GND
 
-Number | A | B | C | D | E | F | G |
-------------------------------------
-    0  | x | x | x | x | x | x |   |
-    1  |   | x | x |   |   |   |   |
-    2  | x | x |   | x | x |   | x |
-    3  | x | x | x | x |   |   | x |
-    4  |   | x | x |   |   | x | x |
-    5  | x |   | x | x |   | x | x |
-    6  | x |   | x | x | x | x | x |
-    7  | x | x | x |   |   |   |   |
-    8  | x | x | x | x | x | x | x |
-    9  | x | x | x | x |   | x | x |
+  The capacitor connects from the input node to GND, in parallel with the
+  pull-down resistor, NOT across the button. Place it close to the input/GND
+  wiring. Ceramic capacitors have no polarity. The series resistor limits
+  capacitor charging current; the pull-down discharges it on release (about
+  10 ms RC time constant with these starting values). Check for reliable presses
+  with your buttons; this RC filter reduces bounce but is not a guarantee of
+  one event per press. Do not add these capacitors to the LDR timing inputs:
+  filtering there changes threshold-crossing times.
 
+Settings operation:
+  Tap and release settings to cycle: run -> distance -> threshold -> scale ->
+  cooldown -> run. Holding settings does not intentionally repeat modes.
+  Accepted rising edges must be more than 200 ms apart (software lockout).
+  Each setting first displays its mode number for 0.5 s, then its value.
 
- Pin numbers within this section do NOT correlate to the physical pin numbers on the Teensy board, they are offset:
- pin numbers start with (P)B0 on the board being pin 1, and continue sequentially for the other pins to PC7being pin 10, 
- then restart at (P)D6 being pin 11, and continue sequentially for the other pins up to (P)F0 being pin 21.
+  Mode  Setting             Default   Down/up step       Limit
+    1   LDR separation      100 mm    1 mm               minimum 1 mm
+    2   Dark threshold      500       5 ADC counts       0..1023
+    3   Scale multiplier    76.00     0.05               minimum 0.01
+    4   Cooldown            2.0 s     0.1 s              minimum 0 s
 
+  Hold down/up to repeat changes, with a 50 ms delay per adjustment plus loop
+  overhead; pressing both cancels adjustment. Down/up have no separate software
+  debounce. Settings return to run after 10 s without a mode change or value
+  adjustment. A sensor trigger also returns to run: sensing remains active in
+  settings. Changes apply immediately and are held only in RAM; reset/power-off
+  restores all defaults.
+
+Speed calculation:
+  effective distance (cm) = LDRdistance (mm) * 0.1 * scale
+  speed (mph) = effective distance / elapsed seconds * 0.0223694
+  Defaults give 760 cm (7.6 m) effective distance for a physical 100 mm gap.
+  In run mode the display shows elapsed seconds while timing, otherwise the
+  last speed, both to two decimal places. Settings use the precision above.
+  Serial diagnostics start at 9600 baud. Startup scans the display segments.
+
+Pinout reference: https://www.pjrc.com/teensy/pinout.html
+See README.md for detailed connections, calibration, and limitations.
 */
 
 int digitPins[] = { 1, 2, 3, 4 };
@@ -77,7 +104,7 @@ unsigned long timeEnd = -2000UL;  // allows first trigger immediately
 
 int mode = 0;  // 0 = running, 1 = LDR distance (mm), 2 = threshold, 3 = scale, 4 = cooldown
 unsigned long modeTime = 0;   // when the mode last changed / was last adjusted
-unsigned long pressTime = 0;  // settings button debounce
+unsigned long pressTime = 0;  // minimum interval between accepted settings presses
 bool lastPress = false;
 
 unsigned long timeStart;
@@ -112,11 +139,11 @@ float timeValue = 0.000;
 void setup() {
   Serial.begin(9600);
 
-  pinMode(startLDRpin, INPUT);     //topLDR - start
-  pinMode(stopLDRpin, INPUT);      //bottomLDR - stop
-  pinMode(setupSwitchPin, INPUT);  //pin for setup switch
-  pinMode(buttonDownPin, INPUT);   //pin for down button
-  pinMode(buttonUpPin, INPUT);     //pin for down button
+  pinMode(startLDRpin, INPUT);     // first sensor (either sensor can start timing)
+  pinMode(stopLDRpin, INPUT);      // second sensor
+  pinMode(setupSwitchPin, INPUT);  // active-HIGH settings button
+  pinMode(buttonDownPin, INPUT);   // active-HIGH down button
+  pinMode(buttonUpPin, INPUT);     // active-HIGH up button
 
   // Cathodes (digits) pin initialization
 
@@ -219,17 +246,6 @@ The decimal point position is noted and sent separately.
 
 
 void loop() {
-
-  /* 
-  
-  pinMode(setupSwitchPin, INPUT);  //pin for setup switch
-  pinMode(buttonDownPin, INPUT);   //pin for down button
-  pinMode(buttonUpPin, INPUT);     //pin for down button
-  
-  int switchPinVal = 0;
-  int buttonDownPinVal = 0;
-  int buttonUpPinVal = 0;
-  */
 
   // READING VALUES FROM THE LDRs SECTION //
 

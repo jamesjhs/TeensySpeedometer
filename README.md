@@ -12,24 +12,40 @@ distance, then displays the result in miles per hour (mph).
 
 ## How it works
 
-The sketch is [`TeensyLDRSpeedo7Seg.ino`](TeensyLDRSpeedo7Seg.ino).
+The sketch is [`TeensyLDRSpeedo7Seg.ino`](TeensyLDRSpeedo7Seg/TeensyLDRSpeedo7Seg.ino).
 
-1. The two LDR voltage-divider signals are read on Teensy pins 21 (start) and
-   20 (stop).
-2. When the start reading is below 500 while the stop reading is at least 500,
-   the sketch records `millis()` and starts timing.
-3. When the stop reading falls below 500, it records the elapsed time.
-4. It calculates speed using
-   `speed (mph) = distance (cm) / elapsed time (seconds) × 0.0223694`.
-   In this sketch, the distance used is `LDRdistance × scale`.
-5. While timing, the display shows elapsed seconds. Otherwise it shows the
-   most recently calculated speed. In setup mode, it shows the scale value.
+1. The two LDR signals are read on pins 21 and 20. Either sensor can start
+   timing when its reading is below `triggerVal` and the other is not blocked,
+   once the cooldown has elapsed. Both blocked together cannot start timing.
+2. The other sensor falling below `triggerVal` stops timing, supporting travel
+   in either direction. The display does not show direction.
+3. Speed in mph is `LDRdistance * 0.1 * scale / elapsedSeconds * 0.0223694`.
+   `LDRdistance` is the physical sensor separation in **mm**.
+4. In run mode the display shows elapsed seconds while timing, otherwise the
+   last speed, both to two decimal places.
 
-The setup switch selects setup mode. The down and up buttons change `scale` by
-0.5 per loop iteration while held. The sketch starts with `LDRdistance = 10 cm`
-and `scale = 76`, so its initial effective distance is **760 cm (7.6 m)**.
-That product is what the speed calculation uses; the displayed scale is not
-itself the distance between the sensors.
+Defaults are 100 mm separation, threshold 500, scale 76.00 and cooldown 2.0 s.
+The effective distance is initially **760 cm (7.6 m)**; the scale multiplier
+is not the physical sensor separation.
+
+### Settings controls
+
+Tap and release the settings button to cycle run -> modes 1, 2, 3, 4 -> run.
+Each setting shows its mode number for 0.5 s before its value. Down/up adjust
+the value; holding a button repeats with a 50 ms delay per adjustment plus
+loop overhead. Pressing both adjustment buttons together makes no change.
+
+| Mode | Setting | Default | Down/up step | Limit / display |
+| --- | --- | --- | --- | --- |
+| 1 | Physical LDR separation | 100 mm | 1 mm | Minimum 1 mm; integer |
+| 2 | Dark threshold | 500 | 5 ADC counts | 0-1023; integer |
+| 3 | Scale multiplier | 76.00 | 0.05 | Minimum 0.01; two decimals |
+| 4 | Cooldown after a measurement | 2.0 s | 0.1 s | Minimum 0 s; one decimal |
+
+Changes apply immediately. Settings return to run after 10 s without a mode
+change or value adjustment. Sensing remains active in settings; a new sensor
+trigger also returns to run. All four settings are held in RAM and reset to
+the defaults on reset or power cycling.
 
 ## Parts and tools
 
@@ -39,7 +55,10 @@ itself the distance between the sensors.
 - Two fixed resistors for LDR voltage dividers (10 kΩ is a reasonable starting
   point; adjust for the lighting and LDRs)
 - Current-limiting resistors for the seven segment lines and decimal-point line
-- One setup switch and two momentary push buttons
+- Three normally-open momentary buttons: settings, down and up
+- Three 10 kΩ pull-down resistors
+- Three non-polarised 1 µF capacitors rated for at least Vcc, and three 1 kΩ
+  series resistors for button filtering
 - Breadboard or other suitable prototyping board, jumper wires, and a common
   ground connection
 - Arduino IDE with Teensy support (Teensyduino)
@@ -107,65 +126,88 @@ Use the divider midpoint as the signal connection:
 | Stop LDR (second sensor encountered) | 20 |
 
 With this arrangement, blocking the light lowers the analog reading, matching
-the sketch's `< 500` trigger condition. The exact reading depends on the LDR,
+the sketch's `< triggerVal` condition (500 by default). The exact reading depends on the LDR,
 fixed resistor, and ambient light. Check readings with the intended lighting
-and adjust the divider resistor and/or the threshold in the sketch if needed.
+and adjust the divider resistor and/or the threshold in settings mode 2 if needed.
 Keep both sensor signals within the Teensy's allowed input-voltage range.
 
 Mount the sensors in a line along the object's path, with a measured separation.
 Arrange a stable light source so the object interrupts each sensor in sequence.
-The start sensor must be interrupted first, followed by the stop sensor.
+Either sensor can be interrupted first, followed by the other sensor.
 Shielding the sensors from changing room light can make triggering more
 consistent.
 
-### Setup switch and buttons
+### Settings buttons and debounce capacitors
 
-These inputs are read as HIGH when active. Since the sketch configures them as
-`INPUT` (not with internal pull-ups), each needs a defined LOW state when
-inactive. Use an external pull-down resistor, for example 10 kΩ from the input
-to ground, and wire the switch/button between the input and +5 V:
+All three inputs are active HIGH and configured as `INPUT`, requiring external
+pull-downs. Use the board's logic supply Vcc (normally +5 V on an unmodified
+Teensy 2.0). See the [PJRC pinout](https://www.pjrc.com/teensy/pinout.html)
+and [power information](https://www.pjrc.com/teensy/external_power.html).
 
 | Control | Teensy pin | Active behavior |
 | --- | ---: | --- |
-| Setup/run switch | 6 | HIGH selects setup mode |
-| Scale down button | 7 | HIGH decreases scale by 0.5 |
-| Scale up button | 8 | HIGH increases scale by 0.5 |
+| Settings button | 6 | Each accepted press advances the mode |
+| Down button | 7 | Decreases the selected setting |
+| Up button | 8 | Increases the selected setting |
 
-Connect the pull-down resistor and controls to the Teensy ground. Do not leave
-these inputs floating. The buttons are not debounced; holding one changes the
-scale repeatedly.
+Build this circuit **separately for each of pins 6, 7 and 8**:
+
+```text
+Vcc --- normally-open button --- 1 kOhm ---+--- Teensy input (6, 7 or 8)
+                                         |
+                                         +--- 10 kOhm --- GND
+                                         |
+                                         +--- 1 uF ------ GND
+```
+
+Connect one capacitor lead to the input node and the other to common GND,
+**in parallel with the pull-down resistor**, not across the button. Place it
+close to the input and ground connection. Ceramic capacitors have no polarity.
+Each button needs its own input node, resistor pair and capacitor; only Vcc
+and GND are shared. Do not leave inputs floating.
+
+The 1 kΩ series resistor limits charging current. The 10 kΩ pull-down defines
+LOW on release and discharges the capacitor with an approximately 10 ms RC
+time constant. These are starting values: check that presses register reliably
+without extra mode changes. The RC filter reduces contact bounce but does not
+guarantee one event per press.
+
+The settings button also has a software lockout: accepted rising edges must
+be more than 200 ms apart. Holding it does not intentionally repeat mode
+changes; release before the next press. Down/up have no separate software
+debounce and repeat while held. The 50 ms adjustment delay is not a full
+debounce algorithm.
+
+Keep these capacitors on the button inputs. Adding them to the LDR timing
+signals can delay threshold crossings and change the measured speed.
 
 ## Upload and test
 
 1. Build the circuit with power disconnected. Verify display polarity, resistor
    placement, and all common-ground connections before connecting USB.
 2. Install the Arduino IDE and Teensyduino support, then open
-   `TeensyLDRSpeedo7Seg.ino`.
+   `TeensyLDRSpeedo7Seg/TeensyLDRSpeedo7Seg.ino`.
 3. Select **Teensy 2.0** as the board, choose the appropriate USB/port options,
    and compile and upload the sketch.
 4. On startup, the sketch briefly turns on the display segments one at a time.
    This is a basic wiring check.
-5. Select setup mode and use the buttons to change the scale. Measure the
-   sensor separation and determine what scale gives the desired effective
-   distance (`LDRdistance × scale`); test the result against a known interval.
-6. Return to run mode. Interrupt the start sensor and then the stop sensor.
-   Confirm that elapsed seconds appear while timing and that a speed is shown
-   after the stop sensor is triggered.
+5. Use mode 1 to set the measured sensor separation in mm, mode 2 to tune
+   the threshold, mode 3 for scale and mode 4 for cooldown. Check mode numbers,
+   adjustment steps, and return to run after 10 s without changes.
+6. Return to run. Interrupt one sensor then the other; check elapsed seconds
+   and the resulting speed. Wait for cooldown and repeat in the reverse
+   direction. Verify speed against a known interval and distance.
+7. Reset and verify that all four settings return to defaults.
 
 Use a slowly moving, hand-propelled object for initial tests. Do not put hands,
 loose wires, or other objects near moving machinery.
 
 ## Notes and limitations in the current sketch
 
-- The comments at the top of the `.ino` file describe older switch pin numbers
-  and ambiguous display wiring. The pin table above follows the declarations
-  and logic in the sketch itself: controls are on 6–8, and pins 12–19 are
-  segment outputs.
-- `Serial.print()` diagnostics are present, but `setup()` does not call
-  `Serial.begin()`. USB serial output may therefore not be available as written.
-- The sensor threshold is fixed at 500. LDR dividers and room lighting can
-  change the readings, so test the actual sensor values and tune the threshold.
-- The scale is held only in RAM. It resets to 76 after power cycling or reset.
+- LDR dividers and room lighting change readings. Tune the threshold in
+  mode 2 and test both sensors in the intended lighting.
+- All four settings are held only in RAM and reset to their defaults.
+- Serial diagnostics are initialised with `Serial.begin(9600)`.
 - Timing is based on the interval between two threshold crossings. Sensor
   response, object width, alignment, and changing illumination all affect the
   measurement.
